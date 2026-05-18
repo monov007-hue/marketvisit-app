@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Market Visit</title>
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+      margin: 0;
+      background: #f0f0f0;
+    }
+    h2 { margin-bottom: 30px; }
+    .btn {
+      width: 80%;
+      padding: 16px;
+      margin: 10px 0;
+      font-size: 16px;
+      border: none;
+      border-radius: 12px;
+      cursor: pointer;
+      color: white;
+    }
+    .btn-new    { background: #2AABEE; }
+    .btn-design { background: #7B68EE; }
+    .btn-shelf  { background: #50C878; }
+  </style>
+</head>
+<body>
+  <h2>Какой формат загрузки?</h2>
+
+  <button class="btn btn-new"
+    onclick="choose('новинка')">🆕 Новинка</button>
+
+  <button class="btn btn-design"
+    onclick="choose('дизайн')">🎨 Дизайн</button>
+
+  <button class="btn btn-shelf"
+    onclick="choose('полка')">📦 Полка</button>
+
+  <script>
+    const tg = window.Telegram.WebApp;
+    tg.ready();
+    tg.expand();
+
+    function choose(category) {
+      tg.sendData(category);
+      tg.close();
+    }
+  </script>
+</body>
+</html>
