@@ -1,0 +1,8 @@
+python-telegram-bot
+aiosqlite
+httpx
+Pillow
+rapidfuzz
+groq
+duckduckgo-search
+aiohttp
