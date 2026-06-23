@@ -59,7 +59,7 @@ logger = logging.getLogger("market-bot")
 # ══════════════════════════════════════
 
 user_states: dict = {}
-bot_instance      = None  # нужен для photos_api
+bot_instance      = None
 
 # ══════════════════════════════════════
 # DB INIT
@@ -87,7 +87,7 @@ def keyboard_group():
     return InlineKeyboardMarkup([[
         InlineKeyboardButton(
             text="📸 Фото",
-            url=f"https://t.me/{BOT_USERNAME}/upload"  # https:// обязателен
+            url=f"https://t.me/{BOT_USERNAME}/upload"
         )
     ]])
 
@@ -121,7 +121,7 @@ async def pin(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     try:
-        msg = await update.message.reply_text(  # было: update.message(...)
+        msg = await update.message.reply_text(
             "НАЖМИ ДЛЯ АНАЛИЗА 👉👉",
             reply_markup=keyboard_group()
         )
@@ -139,7 +139,6 @@ async def pin(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ══════════════════════════════════════
 
 async def handle_group_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Сохраняет file_id фото из группы в БД — файл не скачивается"""
     try:
         photo = update.message.photo[-1]
         await save_group_photo(
@@ -153,7 +152,6 @@ async def handle_group_photo(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 
 async def handle_private_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Сохраняет фото из личного чата и анализирует его"""
     user  = update.effective_user
     photo = update.message.photo[-1]
     file  = await context.bot.get_file(photo.file_id)
@@ -187,9 +185,83 @@ async def handle_private_photo(update: Update, context: ContextTypes.DEFAULT_TYP
     )
 
 # ══════════════════════════════════════
-# PHOTOS API
-# Файлы хранит Telegram — мы конвертируем
-# file_id → прямую ссылку через Bot API
+# API — /api/analyze
+# Принимает base64 фото от Cloudflare Worker,
+# прогоняет через vision.py (Vision+DDG+Groq),
+# возвращает JSON с результатом
+# ══════════════════════════════════════
+
+async def analyze_api(request):
+    """POST /api/analyze — вызывается Cloudflare Worker"""
+    # CORS preflight
+    if request.method == "OPTIONS":
+        return web.Response(
+            status=204,
+            headers={
+                "Access-Control-Allow-Origin":  "*",
+                "Access-Control-Allow-Methods": "POST, OPTIONS",
+                "Access-Control-Allow-Headers": "Content-Type",
+            }
+        )
+
+    try:
+        body        = await request.json()
+        image_b64   = body.get("image", "")
+
+        if not image_b64:
+            return web.json_response(
+                {"error": "Поле image обязательно"},
+                status=400,
+                headers={"Access-Control-Allow-Origin": "*"}
+            )
+
+        # Декодируем base64 → bytes
+        image_bytes = base64.b64decode(image_b64)
+
+        # Полный pipeline: Vision + DDG + Groq + rapidfuzz
+        logger.info("[ANALYZE API] запуск анализа...")
+        result = await analyze_image(image_bytes)
+        logger.info(f"[ANALYZE API] результат: {result}")
+
+        # Сохраняем фото на диск
+        path = os.path.join(PHOTOS_DIR, f"{uuid.uuid4()}.jpg")
+        with open(path, "wb") as f:
+            f.write(image_bytes)
+
+        # Сохраняем в БД
+        await save_product(
+            user_id          = 0,
+            username         = "webapp",
+            category         = "webapp",
+            photo_path       = path,
+            product_name     = result.get("product_name",     "Не опознано"),
+            brand            = result.get("brand",            "Не опознано"),
+            product_category = result.get("product_category", "Другое"),
+            confidence       = result.get("confidence",       0),
+        )
+
+        return web.json_response(
+            {
+                "success":      True,
+                "product_name": result.get("product_name",     "Не опознано"),
+                "brand":        result.get("brand",            "Не опознано"),
+                "category":     result.get("product_category", "Другое"),
+                "confidence":   result.get("confidence",       1.0),
+            },
+            headers={"Access-Control-Allow-Origin": "*"}
+        )
+
+    except Exception as e:
+        logger.error(f"[ANALYZE API ERROR] {e}")
+        return web.json_response(
+            {"error": str(e)},
+            status=500,
+            headers={"Access-Control-Allow-Origin": "*"}
+        )
+
+
+# ══════════════════════════════════════
+# API — /api/photos
 # ══════════════════════════════════════
 
 async def photos_api(request):
@@ -216,7 +288,9 @@ async def photos_api(request):
 
 async def start_web_server():
     app  = web.Application()
-    app.router.add_get("/api/photos", photos_api)
+    app.router.add_get("/api/photos",   photos_api)
+    app.router.add_post("/api/analyze", analyze_api)
+    app.router.add_route("OPTIONS", "/api/analyze", analyze_api)
 
     runner = web.AppRunner(app)
     await runner.setup()
@@ -224,6 +298,7 @@ async def start_web_server():
     port = int(os.getenv("API_PORT", 8080))
     site = web.TCPSite(runner, "0.0.0.0", port)
     await site.start()
+    logger.info(f"✅ API сервер запущен на порту {port}")
 
 # ══════════════════════════════════════
 # WEBAPP DATA
@@ -248,14 +323,10 @@ async def handle_webapp_data(update: Update, context: ContextTypes.DEFAULT_TYPE)
             f"🗂 {result.get('product_category', '—')}"
         )
 
-        # Автоматически отправляем фото в группу без текста
         if chat_id:
             try:
                 with open(path, "rb") as f:
-                    await context.bot.send_photo(
-                        chat_id=int(chat_id),
-                        photo=f
-                    )
+                    await context.bot.send_photo(chat_id=int(chat_id), photo=f)
                 logger.info(f"[WEBAPP] Фото отправлено в группу {chat_id}")
             except Exception as e:
                 logger.warning(f"[WEBAPP] Не удалось отправить в группу: {e}")
