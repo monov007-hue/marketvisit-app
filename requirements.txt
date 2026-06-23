@@ -5,5 +5,5 @@ httpx
 Pillow
 rapidfuzz
 groq
-duckduckgo-search
+duckduckgo_search
 aiohttp
