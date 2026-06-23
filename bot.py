@@ -432,6 +432,8 @@ def main():
     async def run():
         await start_web_server()
         await app.initialize()
+        await post_init(app)
+        
         await app.start()
         await app.updater.start_polling()
 
