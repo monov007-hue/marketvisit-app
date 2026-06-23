@@ -14,7 +14,7 @@ import httpx
 from PIL import Image, ImageOps, ImageFilter
 from rapidfuzz import process, fuzz
 from groq import AsyncGroq
-from ddgs import DDGS
+from duckduckgo_search import DDGS
 
 # ══════════════════════════════════════
 # CONFIG
