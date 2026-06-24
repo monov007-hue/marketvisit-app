@@ -14,7 +14,81 @@ import httpx
 from PIL import Image, ImageOps, ImageFilter
 from rapidfuzz import process, fuzz
 from groq import AsyncGroq
-from duckduckgo_search import DDGS
+SERPER_URL     = "https://google.serper.dev/search"
+SERPER_TIMEOUT = 5.0
+async def serper_search(query: str) -> str:
+    if not query.strip():
+        return ""
+
+    try:
+        async with httpx.AsyncClient(timeout=SERPER_TIMEOUT) as client:
+            r = await client.post(
+                SERPER_URL,
+                headers={
+                    "X-API-KEY": os.getenv("SERPER_API_KEY"),
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "q": query,
+                    "gl": "ru",
+                    "hl": "ru",
+                    "num": 5,
+                },
+            )
+
+        data = r.json()
+
+        results = []
+
+        for item in data.get("organic", []):
+            title = item.get("title", "")
+            snippet = item.get("snippet", "")
+
+            if title:
+                results.append(f"{title}\n{snippet}")
+
+        return "\n\n".join(results)
+
+    except Exception as e:
+        logger.warning(f"[SERPER] ошибка: {e}")
+        return ""
+def build_search_query(vision_text: str) -> str:
+    labels = []
+    logos = []
+    text = ""
+
+    for line in vision_text.split("\n"):
+        if line.startswith("LABELS:"):
+            labels = [
+                x.strip()
+                for x in line.replace("LABELS:", "").split(",")
+                if x.strip()
+            ]
+
+        elif line.startswith("LOGOS:"):
+            logos = [
+                x.strip()
+                for x in line.replace("LOGOS:", "").split(",")
+                if x.strip()
+            ]
+
+        elif line.startswith("TEXT:"):
+            text = line.replace("TEXT:", "").replace("\n", " ").strip()
+
+    parts = []
+
+    if logos:
+        parts.extend(logos[:2])
+
+    if text:
+        parts.append(text[:120])
+
+    if labels:
+        parts.extend(labels[:3])
+
+    query = " ".join(parts)
+
+    return query[:250]
 
 # ══════════════════════════════════════
 # CONFIG
