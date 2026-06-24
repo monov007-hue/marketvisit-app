@@ -39,7 +39,14 @@ async def init_db():
             )
         """)
         await db.commit()
-
+        
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS image_cache (
+                hash TEXT PRIMARY KEY,
+                result TEXT,
+                timestamp INTEGER
+            )
+        """)
 
 # ══════════════════════════════════════
 # PRODUCTS
