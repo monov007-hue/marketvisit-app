@@ -272,7 +272,11 @@ async def photos_api(request):
         for file_id in file_ids:
             try:
                 tg_file = await bot_instance.get_file(file_id)
-                url     = f"https://api.telegram.org/file/bot{BOT_TOKEN}/{tg_file.file_path}"
+                file_path = tg_file.file_path
+                if file_path.startswith("http"):
+                    url = file_path
+                else:
+                    url = f"https://api.telegram.org/file/bot{BOT_TOKEN}/{file_path}"
                 photos.append({"url": url})
             except Exception as e:
                 logger.warning(f"[PHOTOS API] file_id {file_id}: {e}")
