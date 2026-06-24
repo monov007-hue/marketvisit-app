@@ -4,6 +4,7 @@ import json
 import base64
 import logging
 import asyncio
+import aiosqlite
 
 from aiohttp import web
 from dotenv import load_dotenv
