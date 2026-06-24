@@ -69,6 +69,16 @@ async def post_init(app: Application):
     global bot_instance
     bot_instance = app.bot
     await init_db()
+    # Создаём кэш таблицу для vision.py
+    async with aiosqlite.connect("cache.db") as db:
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS image_cache (
+                hash TEXT PRIMARY KEY,
+                result TEXT,
+                timestamp INTEGER
+            )
+        """)
+        await db.commit()
 
 # ══════════════════════════════════════
 # KEYBOARDS
