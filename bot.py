@@ -5,6 +5,7 @@ import base64
 import logging
 import asyncio
 import aiosqlite
+import httpx
 
 from aiohttp import web
 from dotenv import load_dotenv
