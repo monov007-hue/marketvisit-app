@@ -200,14 +200,10 @@ async def handle_private_photo(update: Update, context: ContextTypes.DEFAULT_TYP
     if group_chat_id:
         try:
             with open(path, "rb") as f:
-                await context.bot.send_photo(
+                await bot_instance.send_photo(
                     chat_id=int(group_chat_id),
-                    photo=f,
-                    caption=(
-                        f"📦 {result.get('product_name', '—')}\n"
-                        f"🏷 {result.get('brand', '—')}\n"
-                        f"🗂 {result.get('product_category', '—')}"
-                    )
+                    photo=image_bytes,
+                )
                 )
             logger.info(f"[GROUP] фото отправлено в группу {group_chat_id}")
         except Exception as e:
