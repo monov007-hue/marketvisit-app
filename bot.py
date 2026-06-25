@@ -346,6 +346,22 @@ async def feedback_api(request):
             headers={"Access-Control-Allow-Origin": "*"}
         )
         
+async def proxy_photo(request):
+    """GET /api/proxy?url=... — проксирует фото из Telegram"""
+    url = request.query.get("url")
+    if not url or "api.telegram.org" not in url:
+        return web.Response(status=400)
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            r = await client.get(url)
+        return web.Response(
+            body=r.content,
+            content_type=r.headers.get("content-type", "image/jpeg"),
+            headers={"Access-Control-Allow-Origin": "*"}
+        )
+    except Exception as e:
+        return web.Response(status=500)
+        
 async def start_web_server():
     app  = web.Application()
     app.router.add_get("/api/photos",   photos_api)
@@ -353,6 +369,7 @@ async def start_web_server():
     app.router.add_route("OPTIONS", "/api/analyze", analyze_api)
     app.router.add_post("/api/feedback", feedback_api)
     app.router.add_route("OPTIONS", "/api/feedback", feedback_api)
+    app.router.add_get("/api/proxy", proxy_photo)
 
     runner = web.AppRunner(app)
     await runner.setup()
