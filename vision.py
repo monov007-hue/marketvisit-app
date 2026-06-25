@@ -77,10 +77,20 @@ def preprocess_image(image_bytes: bytes) -> bytes:
 
     img = ImageOps.autocontrast(img)
     img = img.filter(ImageFilter.SHARPEN)
-    img.thumbnail((MAX_IMAGE_SIZE, MAX_IMAGE_SIZE))
 
+    # Сохраняем детали — уменьшаем только если реально большое
+    img.thumbnail((1920, 1920))
+
+    # Подбираем качество чтобы уложиться в 7 МБ
     out = io.BytesIO()
-    img.save(out, format="JPEG", quality=JPEG_QUALITY, optimize=True)
+    for quality in [85, 75, 65, 55]:
+        out = io.BytesIO()
+        img.save(out, format="JPEG", quality=quality, optimize=True)
+        size_mb = len(out.getvalue()) / (1024 * 1024)
+        if size_mb < 7.0:
+            logger.info(f"[IMAGE] {size_mb:.1f} МБ, quality={quality}")
+            break
+
     return out.getvalue()
 
 # ══════════════════════════════════════
