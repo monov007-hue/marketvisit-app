@@ -196,7 +196,22 @@ async def handle_private_photo(update: Update, context: ContextTypes.DEFAULT_TYP
         f"🗂 Категория: {result.get('product_category', '—')}",
         reply_markup=keyboard_result(row_id)
     )
-
+    group_chat_id = os.getenv("GROUP_CHAT_ID")
+    if group_chat_id:
+        try:
+            with open(path, "rb") as f:
+                await context.bot.send_photo(
+                    chat_id=int(group_chat_id),
+                    photo=f,
+                    caption=(
+                        f"📦 {result.get('product_name', '—')}\n"
+                        f"🏷 {result.get('brand', '—')}\n"
+                        f"🗂 {result.get('product_category', '—')}"
+                    )
+                )
+            logger.info(f"[GROUP] фото отправлено в группу {group_chat_id}")
+        except Exception as e:
+            logger.warning(f"[GROUP] ошибка отправки: {e}")
 # ══════════════════════════════════════
 # API — /api/analyze
 # Принимает base64 фото от Cloudflare Worker,
