@@ -267,7 +267,22 @@ async def analyze_api(request):
             product_category = result.get("product_category", "Другое"),
             confidence       = result.get("confidence",       0),
         )
-
+        # Автоматически отправляем фото в группу
+        group_chat_id = os.getenv("GROUP_CHAT_ID")
+        if group_chat_id and bot_instance:
+            try:
+                await bot_instance.send_photo(
+                    chat_id=int(group_chat_id),
+                    photo=image_bytes,
+                    caption=(
+                        f"📦 {result.get('product_name', '—')}\n"
+                        f"🏷 {result.get('brand', '—')}\n"
+                        f"🗂 {result.get('product_category', '—')}"
+                    )
+                )
+                logger.info(f"[GROUP] фото отправлено в группу {group_chat_id}")
+            except Exception as e:
+                logger.warning(f"[GROUP] ошибка: {e}")
         return web.json_response(
             {
                 "success":      True,
