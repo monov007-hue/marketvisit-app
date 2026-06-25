@@ -204,7 +204,6 @@ async def handle_private_photo(update: Update, context: ContextTypes.DEFAULT_TYP
                     chat_id=int(group_chat_id),
                     photo=image_bytes,
                 )
-                )
             logger.info(f"[GROUP] фото отправлено в группу {group_chat_id}")
         except Exception as e:
             logger.warning(f"[GROUP] ошибка отправки: {e}")
