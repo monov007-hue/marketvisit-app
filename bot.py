@@ -241,7 +241,7 @@ async def analyze_api(request):
             f.write(image_bytes)
 
         # Сохраняем в БД
-        await save_product(
+        row_id = await save_product(
             user_id          = 0,
             username         = "webapp",
             category         = "webapp",
