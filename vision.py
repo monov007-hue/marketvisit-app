@@ -103,6 +103,14 @@ def image_hash(b: bytes) -> str:
 
 async def get_cache(h: str):
     async with aiosqlite.connect(CACHE_DB) as db:
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS image_cache (
+                hash TEXT PRIMARY KEY,
+                result TEXT,
+                timestamp INTEGER
+            )
+        """)
+        await db.commit()
         async with db.execute(
             "SELECT result FROM image_cache WHERE hash=?", (h,)
         ) as cur:
