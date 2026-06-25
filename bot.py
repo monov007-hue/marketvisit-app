@@ -31,6 +31,7 @@ from database import (
     delete_product,
     save_group_photo,
     get_recent_group_photos,
+    save_feedback,
 )
 from vision import analyze_image
 
@@ -254,6 +255,7 @@ async def analyze_api(request):
         return web.json_response(
             {
                 "success":      True,
+                "product_id":   row_id, 
                 "product_name": result.get("product_name",     "Не опознано"),
                 "brand":        result.get("brand",            "Не опознано"),
                 "category":     result.get("product_category", "Другое"),
@@ -300,12 +302,57 @@ async def photos_api(request):
         logger.error(f"[PHOTOS API] {e}")
         return web.json_response({"photos": []})
 
+async def feedback_api(request):
+    if request.method == "OPTIONS":
+        return web.Response(
+            status=204,
+            headers={
+                "Access-Control-Allow-Origin":  "*",
+                "Access-Control-Allow-Methods": "POST, OPTIONS",
+                "Access-Control-Allow-Headers": "Content-Type",
+            }
+        )
+    try:
+        body       = await request.json()
+        product_id = body.get("product_id")
+        vote       = body.get("vote")
 
+        if product_id is None or vote not in (1, -1):
+            return web.json_response(
+                {"error": "product_id и vote (1 или -1) обязательны"},
+                status=400,
+                headers={"Access-Control-Allow-Origin": "*"}
+            )
+
+        await save_feedback(
+            product_id       = product_id,
+            vote             = vote,
+            correct_name     = body.get("correct_name"),
+            correct_brand    = body.get("correct_brand"),
+            correct_category = body.get("correct_category"),
+        )
+
+        logger.info(f"[FEEDBACK] product_id={product_id} vote={vote}")
+        return web.json_response(
+            {"success": True},
+            headers={"Access-Control-Allow-Origin": "*"}
+        )
+
+    except Exception as e:
+        logger.error(f"[FEEDBACK ERROR] {e}")
+        return web.json_response(
+            {"error": str(e)},
+            status=500,
+            headers={"Access-Control-Allow-Origin": "*"}
+        )
+        
 async def start_web_server():
     app  = web.Application()
     app.router.add_get("/api/photos",   photos_api)
     app.router.add_post("/api/analyze", analyze_api)
     app.router.add_route("OPTIONS", "/api/analyze", analyze_api)
+    app.router.add_post("/api/feedback", feedback_api)
+    app.router.add_route("OPTIONS", "/api/feedback", feedback_api)
 
     runner = web.AppRunner(app)
     await runner.setup()
