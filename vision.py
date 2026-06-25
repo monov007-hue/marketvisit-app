@@ -14,92 +14,18 @@ import httpx
 from PIL import Image, ImageOps, ImageFilter
 from rapidfuzz import process, fuzz
 from groq import AsyncGroq
-SERPER_URL     = "https://google.serper.dev/search"
-SERPER_TIMEOUT = 5.0
-async def serper_search(query: str) -> str:
-    if not query.strip():
-        return ""
-
-    try:
-        async with httpx.AsyncClient(timeout=SERPER_TIMEOUT) as client:
-            r = await client.post(
-                SERPER_URL,
-                headers={
-                    "X-API-KEY": os.getenv("SERPER_API_KEY"),
-                    "Content-Type": "application/json",
-                },
-                json={
-                    "q": query,
-                    "gl": "ru",
-                    "hl": "ru",
-                    "num": 5,
-                },
-            )
-
-        data = r.json()
-
-        results = []
-
-        for item in data.get("organic", []):
-            title = item.get("title", "")
-            snippet = item.get("snippet", "")
-
-            if title:
-                results.append(f"{title}\n{snippet}")
-
-        return "\n\n".join(results)
-
-    except Exception as e:
-        logger.warning(f"[SERPER] ошибка: {e}")
-        return ""
-def build_search_query(vision_text: str) -> str:
-    labels = []
-    logos = []
-    text = ""
-
-    for line in vision_text.split("\n"):
-        if line.startswith("LABELS:"):
-            labels = [
-                x.strip()
-                for x in line.replace("LABELS:", "").split(",")
-                if x.strip()
-            ]
-
-        elif line.startswith("LOGOS:"):
-            logos = [
-                x.strip()
-                for x in line.replace("LOGOS:", "").split(",")
-                if x.strip()
-            ]
-
-        elif line.startswith("TEXT:"):
-            text = line.replace("TEXT:", "").replace("\n", " ").strip()
-
-    parts = []
-
-    if logos:
-        parts.extend(logos[:2])
-
-    if text:
-        parts.append(text[:120])
-
-    if labels:
-        parts.extend(labels[:3])
-
-    query = " ".join(parts)
-
-    return query[:250]
 
 # ══════════════════════════════════════
 # CONFIG
 # ══════════════════════════════════════
 
 VISION_URL     = "https://vision.googleapis.com/v1/images:annotate"
+SERPER_URL     = "https://google.serper.dev/search"
 GROQ_MODEL     = "llama-3.3-70b-versatile"
 CACHE_DB       = "cache.db"
-MAX_IMAGE_SIZE = 960       # было 1280 — меньше = быстрее
-JPEG_QUALITY   = 82        # было 88
-DDG_TIMEOUT    = 4.0       # секунд на веб-поиск, потом пропускаем
+MAX_IMAGE_SIZE = 1280      # увеличено для лучшего распознавания
+JPEG_QUALITY   = 85
+SERPER_TIMEOUT = 5.0
 
 logging.basicConfig(
     level=logging.INFO,
@@ -183,7 +109,7 @@ async def save_cache(h: str, result: dict):
         await db.commit()
 
 # ══════════════════════════════════════
-# GOOGLE VISION
+# GOOGLE VISION — 15 результатов
 # ══════════════════════════════════════
 
 async def run_vision(image_b64: str) -> str:
@@ -191,10 +117,10 @@ async def run_vision(image_b64: str) -> str:
         "requests": [{
             "image": {"content": image_b64},
             "features": [
-                {"type": "LABEL_DETECTION",  "maxResults": 8},
+                {"type": "LABEL_DETECTION",       "maxResults": 15},  # было 8
                 {"type": "TEXT_DETECTION"},
-                {"type": "LOGO_DETECTION",   "maxResults": 3},
-                # OBJECT_LOCALIZATION убран — дублирует LABEL и замедляет
+                {"type": "LOGO_DETECTION",         "maxResults": 5},   # было 3
+                {"type": "OBJECT_LOCALIZATION",    "maxResults": 10},  # возвращён
             ],
         }]
     }
@@ -205,41 +131,86 @@ async def run_vision(image_b64: str) -> str:
             json=payload,
         )
 
-    data   = r.json()["responses"][0]
-    labels = [x.get("description", "") for x in data.get("labelAnnotations", [])]
-    logos  = [x.get("description", "") for x in data.get("logoAnnotations",  [])]
-    text   = ""
+    data    = r.json()["responses"][0]
+    labels  = [x.get("description", "") for x in data.get("labelAnnotations",          [])]
+    logos   = [x.get("description", "") for x in data.get("logoAnnotations",           [])]
+    objects = [x.get("name",        "") for x in data.get("localizedObjectAnnotations", [])]
+    text    = ""
     if "textAnnotations" in data:
-        text = data["textAnnotations"][0].get("description", "")[:500]  # обрезаем длинный текст
+        text = data["textAnnotations"][0].get("description", "")[:700]
 
-    return f"LABELS: {', '.join(labels)}\nLOGOS: {', '.join(logos)}\nTEXT: {text}".strip()
+    return (
+        f"LABELS: {', '.join(labels)}\n"
+        f"LOGOS: {', '.join(logos)}\n"
+        f"OBJECTS: {', '.join(objects)}\n"
+        f"TEXT: {text}"
+    ).strip()
 
 # ══════════════════════════════════════
-# DDG ПОИСК — async с таймаутом
+# SERPER — Google Search API
 # ══════════════════════════════════════
 
-def _ddg_sync(query: str) -> str:
-    try:
-        with DDGS() as ddgs:
-            results = ddgs.text(query, max_results=3)
-            return "\n".join(r["body"] for r in results)
-    except:
+def build_search_query(vision_text: str) -> str:
+    """Строим умный поисковый запрос из данных Vision"""
+    logos  = []
+    text   = ""
+    labels = []
+
+    for line in vision_text.split("\n"):
+        if line.startswith("LOGOS:"):
+            logos = [x.strip() for x in line.replace("LOGOS:", "").split(",") if x.strip()]
+        elif line.startswith("TEXT:"):
+            text = line.replace("TEXT:", "").replace("\n", " ").strip()[:120]
+        elif line.startswith("LABELS:"):
+            labels = [x.strip() for x in line.replace("LABELS:", "").split(",") if x.strip()]
+
+    parts = []
+    if logos:
+        parts.extend(logos[:2])
+    if text:
+        parts.append(text)
+    if labels and not logos:
+        parts.extend(labels[:3])
+
+    return " ".join(parts)[:250]
+
+
+async def serper_search(query: str) -> str:
+    """Поиск через Serper API (Google Search)"""
+    api_key = os.getenv("SERPER_API_KEY")
+    if not api_key or not query.strip():
+        logger.warning("[SERPER] ключ не задан или пустой запрос")
         return ""
 
-
-async def ddg_search_async(query: str) -> str:
-    """Запускает DDG в отдельном потоке с таймаутом — не блокирует event loop"""
     try:
-        result = await asyncio.wait_for(
-            asyncio.to_thread(_ddg_sync, query),
-            timeout=DDG_TIMEOUT
-        )
+        async with httpx.AsyncClient(timeout=SERPER_TIMEOUT) as client:
+            r = await client.post(
+                SERPER_URL,
+                headers={
+                    "X-API-KEY":    api_key,
+                    "Content-Type": "application/json",
+                },
+                json={"q": query, "num": 5, "gl": "ru", "hl": "ru"},
+            )
+
+        data     = r.json()
+        snippets = []
+
+        for item in data.get("organic", [])[:5]:
+            title   = item.get("title",   "")
+            snippet = item.get("snippet", "")
+            if snippet:
+                snippets.append(f"{title}: {snippet}")
+
+        result = "\n".join(snippets)
+        logger.info(f"[SERPER] найдено {len(snippets)} результатов")
         return result
+
     except asyncio.TimeoutError:
-        logger.warning("[DDG] таймаут — пропускаем веб-поиск")
+        logger.warning("[SERPER] таймаут — пропускаем")
         return ""
     except Exception as e:
-        logger.warning(f"[DDG] ошибка: {e}")
+        logger.warning(f"[SERPER] ошибка: {e}")
         return ""
 
 # ══════════════════════════════════════
@@ -257,29 +228,35 @@ def safe_json_load(text: str) -> dict:
 async def run_groq(vision_text: str, web_info: str) -> dict:
     client = AsyncGroq(api_key=os.getenv("GROQ_API_KEY"))
 
-    web_block = f"\nWEB:\n{web_info}" if web_info else ""
+    web_block = f"\nWEB (результаты Google):\n{web_info}" if web_info else ""
 
-    prompt = f"""Ты эксперт по товарам супермаркета.
+    prompt = f"""Ты эксперт по товарам супермаркета. Определи товар по данным компьютерного зрения.
 
-VISION:
+VISION API:
 {vision_text}{web_block}
 
 Верни только JSON без пояснений:
 {{
-  "product_name": "...",
-  "brand": "...",
-  "category": "..."
+  "product_name": "точное название с объёмом/весом если есть",
+  "brand": "бренд или производитель",
+  "category": "одна категория из списка"
 }}
 
-Категории: {CATEGORIES_STR}
-Если не уверен → "Не опознано" / "Другое"
+Категории (выбери ТОЧНО одну):
+{CATEGORIES_STR}
+
+Правила:
+- Текст с упаковки (TEXT) — главный источник
+- Логотипы (LOGOS) — это бренд
+- Если есть объём/вес в тексте — включи в название
+- Если не уверен → product_name: "Не опознано", category: "Другое"
 """
 
     resp = await client.chat.completions.create(
         model=GROQ_MODEL,
         messages=[{"role": "user", "content": prompt}],
         temperature=0.1,
-        max_tokens=200,   # нам нужен только короткий JSON
+        max_tokens=200,
     )
 
     content = resp.choices[0].message.content
@@ -303,7 +280,7 @@ def normalize_category(cat: str) -> str:
 # ══════════════════════════════════════
 
 async def analyze_image(image_bytes: bytes) -> Dict[str, Any]:
-    # 1. Сжимаем изображение
+    # 1. Сжимаем и улучшаем изображение
     image_bytes = preprocess_image(image_bytes)
     h = image_hash(image_bytes)
 
@@ -315,20 +292,18 @@ async def analyze_image(image_bytes: bytes) -> Dict[str, Any]:
 
     image_b64 = base64.b64encode(image_bytes).decode()
 
-    # 3. Vision API и DDG запускаем ПАРАЛЛЕЛЬНО
-    logger.info("[Pipeline] Vision + DDG параллельно...")
-    vision_data, web_info = await asyncio.gather(
-        run_vision(image_b64),
-        ddg_search_async(image_b64[:100]),  # DDG стартует сразу, пока Vision обрабатывает
-    )
+    # 3. Vision API
+    logger.info("[Pipeline] Vision API...")
+    vision_data = await run_vision(image_b64)
 
-    # DDG с нормальным запросом на основе Vision результата
-    # Если Vision быстрее DDG — делаем уточняющий поиск по результату
-    if not web_info and vision_data:
-        query = vision_data.split("\n")[1] if "\n" in vision_data else vision_data[:80]
-        web_info = await ddg_search_async(query)
+    # 4. Serper — умный запрос на основе Vision
+    web_info = ""
+    query    = build_search_query(vision_data)
+    if query:
+        logger.info(f"[Pipeline] Serper: {query[:80]}")
+        web_info = await serper_search(query)
 
-    # 4. Groq структурирует результат
+    # 5. Groq структурирует результат
     logger.info("[Groq] structuring...")
     result = await run_groq(vision_data, web_info)
 
