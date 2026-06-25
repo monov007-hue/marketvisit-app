@@ -269,11 +269,6 @@ async def analyze_api(request):
                 await bot_instance.send_photo(
                     chat_id=int(group_chat_id),
                     photo=image_bytes,
-                    caption=(
-                        f"📦 {result.get('product_name', '—')}\n"
-                        f"🏷 {result.get('brand', '—')}\n"
-                        f"🗂 {result.get('product_category', '—')}"
-                    )
                 )
                 logger.info(f"[GROUP] фото отправлено в группу {group_chat_id}")
             except Exception as e:
@@ -537,7 +532,6 @@ def main():
     async def run():
         await start_web_server()
         await app.initialize()
-        await post_init(app)
         
         await app.start()
         await app.updater.start_polling()
