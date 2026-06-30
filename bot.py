@@ -35,7 +35,6 @@ from database import (
     save_feedback,
 )
 from vision import analyze_image
-from export_to_excel import export_loop  # ← НОВОЕ: фоновый экспорт в Excel
 
 # ══════════════════════════════════════
 # CONFIG
@@ -537,10 +536,6 @@ def main():
         await app.start()
         await app.updater.start_polling()
 
-        # ── НОВОЕ: запускаем фоновый периодический экспорт в Excel ──
-        export_task = asyncio.create_task(export_loop())
-        logger.info("✅ Фоновый экспорт в Excel запущен")
-
         logger.info("✅ Бот запущен")
 
         try:
@@ -549,7 +544,6 @@ def main():
         except asyncio.CancelledError:
             pass
         finally:
-            export_task.cancel()  # ← НОВОЕ: корректно останавливаем экспорт при выключении бота
             await app.updater.stop()
             await app.stop()
             await app.shutdown()
