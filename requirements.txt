@@ -7,3 +7,4 @@ rapidfuzz
 groq
 duckduckgo-search==6.3.7
 aiohttp
+openpyxl
