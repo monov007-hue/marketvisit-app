@@ -384,17 +384,19 @@ async def proxy_photo(request):
         return web.Response(status=500)
         
 async def start_web_server():
-    app  = web.Application()
+    # client_max_size увеличен: фото с телефона в base64 легко весят 5-10 МБ,
+    # дефолтный лимит aiohttp (1 МБ) обрезал такие запросы ошибкой "Content Too Large"
+    app  = web.Application(client_max_size=20 * 1024 * 1024)  # 20 МБ
     app.router.add_get("/api/photos",   photos_api)
     app.router.add_post("/api/analyze", analyze_api)
     app.router.add_route("OPTIONS", "/api/analyze", analyze_api)
     app.router.add_post("/api/feedback", feedback_api)
     app.router.add_route("OPTIONS", "/api/feedback", feedback_api)
     app.router.add_get("/api/proxy", proxy_photo)
-
+ 
     runner = web.AppRunner(app)
     await runner.setup()
-
+ 
     port = int(os.getenv("PORT", 8080))
     site = web.TCPSite(runner, "0.0.0.0", port)
     await site.start()
